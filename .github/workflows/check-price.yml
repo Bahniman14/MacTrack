@@ -39,6 +39,12 @@ jobs:
       - name: Run tests
         run: python -m pytest -q
 
+      # Dashboard CSV parser/stats tests. Node is preinstalled on ubuntu-latest.
+      - name: Run dashboard tests (node)
+        run: |
+          node --version
+          node --test tests/js/csv.test.mjs tests/js/stats.test.mjs
+
       - name: Check prices
         id: check
         env:
@@ -56,10 +62,17 @@ jobs:
             echo "::error::check_price.py wrote zero rows"
             exit 1
           fi
+          # Rows are saved either way; the commit step below still runs on these exit codes.
+          # A failed job also makes GitHub email the owner (Settings > Notifications > Actions),
+          # which matters when Telegram itself is the thing that is broken.
+          case "$status" in
+            3) echo "::error::Alert/summary processing crashed (exit 3); price rows were saved" ;;
+            4) echo "::error::Telegram delivery failed (exit 4) - check the bot token/chat id secrets; price rows were saved" ;;
+          esac
           exit "$status"
 
-      # Runs even if alert sending crashed (exit 3) so appended rows are never lost,
-      # but not when the check step never ran (e.g. tests failed).
+      # Runs even if alert processing crashed (exit 3) or Telegram delivery failed (exit 4)
+      # so appended rows are never lost, but not when the check step never ran (tests failed).
       - name: Commit price data
         if: ${{ !cancelled() && (steps.check.outcome == 'success' || steps.check.outcome == 'failure') }}
         env:
@@ -78,6 +91,8 @@ jobs:
               exit 0
             fi
             echo "push attempt $attempt failed"
+            # A conflicted rebase would block the retry; reset it and start over.
+            git rebase --abort 2>/dev/null || true
             sleep 10
           done
           exit 1

@@ -34,17 +34,33 @@ FORCE_SUMMARY_ENV = "FORCE_SUMMARY"
 STATUS_OK = "ok"
 
 
+FAILURE_REASONS = {
+    "no_match": "page or configuration changed (no_match)",
+    "blocked": "blocked by Apple (blocked)",
+    "suspect": "implausible price, not recorded as a price (suspect)",
+    "failed": "check failed (failed)",
+}
+
+
 @dataclass(frozen=True)
 class AlertSettings:
     drop_inr: int = 5000
     failure_streak: int = 2
+    failure_reminder_streak: int = 7
 
 
 @dataclass(frozen=True)
 class Alert:
     item_id: str
-    kind: str  # "price" | "failure" | "recovery"
+    kind: str  # "price" | "failure" | "failure_reminder" | "recovery"
     text: str
+
+
+@dataclass(frozen=True)
+class NotifyResult:
+    messages: list[str]
+    sent: int = 0
+    failed: int = 0  # due messages that could not be delivered although credentials were set
 
 
 @dataclass(frozen=True)
@@ -64,10 +80,14 @@ def parse_alert_settings(config: Mapping[str, Any]) -> AlertSettings:
     defaults = AlertSettings()
     drop = raw.get("drop_inr", defaults.drop_inr)
     streak = raw.get("failure_streak", defaults.failure_streak)
-    for name, value in (("drop_inr", drop), ("failure_streak", streak)):
+    reminder = raw.get("failure_reminder_streak", defaults.failure_reminder_streak)
+    named = (("drop_inr", drop), ("failure_streak", streak), ("failure_reminder_streak", reminder))
+    for name, value in named:
         if not isinstance(value, int) or isinstance(value, bool) or value < 1:
             raise ValueError(f"config alerts.{name} must be a positive integer, got {value!r}")
-    return AlertSettings(drop_inr=drop, failure_streak=streak)
+    if reminder <= streak:
+        raise ValueError("config alerts.failure_reminder_streak must be greater than failure_streak")
+    return AlertSettings(drop_inr=drop, failure_streak=streak, failure_reminder_streak=reminder)
 
 
 # --------------------------------------------------------------- alert rules
@@ -96,14 +116,12 @@ def _item_alerts(
     url = item.get("url") or newest.get("url", "")
 
     if not _is_ok(newest):
-        if _failure_streak(history) == settings.failure_streak:
-            error = _trim(newest.get("error") or "(no error text)")
-            text = (
-                f"MacTrack: check failing\n{name}\n"
-                f"{settings.failure_streak} consecutive runs not ok (latest status: {newest.get('status')})\n"
-                f"Latest error: {error}\n{url}"
-            )
-            return [Alert(item_id, "failure", text)]
+        streak = _failure_streak(history)
+        if streak == settings.failure_streak:
+            return [Alert(item_id, "failure", _failure_text("check failing", newest, streak, name, url))]
+        if streak == settings.failure_reminder_streak:
+            text = _failure_text("still failing (reminder)", newest, streak, name, url)
+            return [Alert(item_id, "failure_reminder", text)]
         return []
 
     alerts: list[Alert] = []
@@ -140,6 +158,18 @@ def _price_alert(
         f"Lowest ever: {format_inr(lowest.price)} on {lowest.date}\n{url}"
     )
     return Alert(item_id, "price", text)
+
+
+def _failure_text(title: str, newest: Mapping[str, str], streak: int, name: str, url: str) -> str:
+    status = newest.get("status") or "unknown"
+    reason = FAILURE_REASONS.get(status, f"unexpected status ({status})")
+    error = _trim(newest.get("error") or "(no error text)")
+    return (
+        f"MacTrack: {title}\n{name}\n"
+        f"Reason: {reason}\n"
+        f"{streak} consecutive runs not ok\n"
+        f"Latest error: {error}\n{url}"
+    )
 
 
 def _failure_streak(history: Sequence[Mapping[str, str]]) -> int:
@@ -286,10 +316,10 @@ def run_notifications(
     env: Mapping[str, str] | None = None,
     dry_run: bool = False,
     sender: Callable[[str, str, str], bool] = send_telegram,
-) -> list[str]:
+) -> NotifyResult:
     """Evaluate alerts (after rows are appended) and the weekly summary; send or print them.
 
-    Reads the CSV only. Returns the messages that were due.
+    Reads the CSV only. Returns the due messages and how many were sent / failed to send.
     """
     env = os.environ if env is None else env
     rows = storage.read_rows(csv_path)
@@ -301,21 +331,21 @@ def run_notifications(
 
     if not messages:
         print("Alerts: nothing to send.")
-        return messages
+        return NotifyResult(messages)
     if dry_run:
         for text in messages:
             print(f"--- [dry run] would send to Telegram ---\n{console_safe(text)}")
-        return messages
+        return NotifyResult(messages)
 
     creds = get_credentials(env)
     if creds is None:
         print(
             f"WARNING: {TOKEN_ENV}/{CHAT_ID_ENV} not set; skipping {len(messages)} Telegram message(s)."
         )
-        return messages
+        return NotifyResult(messages)
     sent = sum(1 for text in messages if sender(text, *creds))
     print(f"Alerts: sent {sent}/{len(messages)} Telegram message(s).")
-    return messages
+    return NotifyResult(messages, sent=sent, failed=len(messages) - sent)
 
 
 # -------------------------------------------------------------------- helpers

@@ -1,7 +1,8 @@
 {
   "alerts": {
     "drop_inr": 5000,
-    "failure_streak": 2
+    "failure_streak": 2,
+    "failure_reminder_streak": 7
   },
   "items": [
     {
@@ -14,6 +15,8 @@
       "part_number": "Z1KM",
       "expected_sku": "Z1KM+CK56+CK58+CK5F+CK5H+CK5M+CK5P+CK66+CK77+CK7K+HNCK5Q",
       "mrp_title": "14\" MacBook Pro - Silver",
+      "min_price_inr": 150000,
+      "max_price_inr": 400000,
       "enabled": true
     },
     {
@@ -25,6 +28,8 @@
       "url": "https://www.apple.com/in-edu/shop/buy-mac/macbook-pro/14-inch-silver-standard-display-apple-m5-chip-10-core-cpu-10-core-gpu-24gb-memory-1tb-storage",
       "part_number": "SXKK2HN/A",
       "mrp_title": "AppleCare+",
+      "min_price_inr": 10000,
+      "max_price_inr": 60000,
       "enabled": true
     },
     {
@@ -37,6 +42,8 @@
       "part_number": "TODO_PART_NUMBER",
       "expected_sku": "TODO_EXPECTED_SKU",
       "mrp_title": "14\" MacBook Pro - Space Black",
+      "min_price_inr": 150000,
+      "max_price_inr": 400000,
       "enabled": false
     }
   ]

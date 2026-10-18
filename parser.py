@@ -21,6 +21,8 @@ STATUS_OK = "ok"
 STATUS_FAILED = "failed"
 STATUS_BLOCKED = "blocked"
 STATUS_NO_MATCH = "no_match"
+STATUS_SUSPECT = "suspect"  # parsed fine but implausible (see sanity.py); never used as a price
+FULL_PRICE = "fullprice"
 
 MAX_OFFER_TEXTS = 3
 MAX_OFFER_TEXT_LEN = 400
@@ -102,19 +104,23 @@ def _parse_device(html: str, item: dict[str, Any], products: list[dict]) -> Pars
     offers = [o for p in products for o in _as_list(p.get("offers")) if isinstance(o, dict)]
     skus_seen = [str(o.get("sku")) for o in offers]
 
-    match = next((o for o in offers if _sku_matches(o.get("sku"), part_number, expected_sku)), None)
-    if match is None:
+    matches = [o for o in offers if _sku_matches(o.get("sku"), part_number, expected_sku)]
+    if not matches:
         wanted = expected_sku or f"{part_number}+..."
         return ParseResult(
             status=STATUS_NO_MATCH,
             error=f"no JSON-LD offer with sku {wanted}; page skus: {', '.join(skus_seen) or 'none'}",
         )
-    if match.get("priceCurrency", "INR") != "INR":
-        raise ParseError(f"unexpected currency {match.get('priceCurrency')!r}")
+    for offer in matches:
+        currency = offer.get("priceCurrency")
+        if currency is None:
+            raise ParseError("JSON-LD offer has no priceCurrency")
+        if currency != "INR":
+            raise ParseError(f"unexpected currency {currency!r}")
 
     return ParseResult(
         status=STATUS_OK,
-        price_inr=_to_rupees(match.get("price")),
+        price_inr=_single_price([_to_rupees(o.get("price")) for o in matches], "JSON-LD offers"),
         mrp_inr=_mrp_from_summary(html, item.get("mrp_title")),
         part_number_matched=part_number,
         in_stock=_in_stock(html, part_number=part_number),
@@ -157,22 +163,21 @@ def _parse_applecare(html: str, item: dict[str, Any]) -> ParseResult:
     plans = _applecare_plans(html)
     if plans is None:
         raise ParseError("APPLECARE_BOOTSTRAP not found")
-    plan = next(
-        (
-            p
-            for p in plans
-            if p.get("partNumber") == part_number
-            and "rawPrice" in p
-            and _payment_type(p) in (None, "fullprice")
-        ),
-        None,
-    )
-    if plan is None:
+    matching = [
+        p
+        for p in plans
+        if p.get("partNumber") == part_number and "rawPrice" in p and _payment_type(p) == FULL_PRICE
+    ]
+    if not matching:
         found = sorted({str(p.get("partNumber")) for p in plans if "partNumber" in p})
         return ParseResult(
             status=STATUS_NO_MATCH,
-            error=f"no AppleCare plan {part_number}; page plans: {', '.join(found) or 'none'}",
+            error=(
+                f"no full-price AppleCare plan {part_number}; "
+                f"page plans: {', '.join(found) or 'none'}"
+            ),
         )
+    price = _single_price([_to_rupees(p["rawPrice"]) for p in matching], "AppleCare+ plans")
 
     mrp = _mrp_from_summary(html, item.get("mrp_title"))
     if mrp is None:
@@ -180,7 +185,7 @@ def _parse_applecare(html: str, item: dict[str, Any]) -> ParseResult:
 
     return ParseResult(
         status=STATUS_OK,
-        price_inr=_to_rupees(plan["rawPrice"]),
+        price_inr=price,
         mrp_inr=mrp,
         part_number_matched=part_number,
         in_stock=_in_stock(html, acpart=part_number),
@@ -270,6 +275,14 @@ def _offers_raw(html: str) -> str | None:
         if len(texts) >= MAX_OFFER_TEXTS:
             break
     return " | ".join(texts) or None
+
+
+def _single_price(prices: list[int], source: str) -> int:
+    """The one price all matching entries agree on; disagreement is an error, not a guess."""
+    distinct = sorted(set(prices))
+    if len(distinct) != 1:
+        raise ParseError(f"ambiguous: {len(prices)} matching {source} with different prices {distinct}")
+    return distinct[0]
 
 
 def _to_rupees(value: Any) -> int:

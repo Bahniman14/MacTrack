@@ -4,3 +4,8 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .env
+
+# Unredacted browser save (contains a pincode and browser-extension markup) and its asset
+# folder: kept locally only. Tests use tests/fixtures/apple_edu_mbp_redacted.html.
+tests/fixtures/apple_edu_mbp.html
+tests/fixtures/apple_edu_mbp_files/

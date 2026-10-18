@@ -7,7 +7,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
-FIXTURE_HTML = FIXTURES / "apple_edu_mbp.html"  # browser-rendered, 96W adapter selected
+# Browser-rendered page (96W adapter selected), redacted: no pincode, no browser-extension markup.
+FIXTURE_HTML = FIXTURES / "apple_edu_mbp_redacted.html"
 LIVE_RAW_HTML = FIXTURES / "apple_live_raw.html"  # exact httpx response bytes, URL default (70W)
 
 SKU_70W = "Z1KM+CK56+CK58+CK5F+CK5H+CK5M+CK5P+CK66+CK77+CK7K+HNCK5Q"

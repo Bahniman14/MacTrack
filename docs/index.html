@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>MacTrack</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <h1>MacTrack</h1>
+      <p class="subtitle">
+        MacBook Pro 14 M5, 24GB/1TB, Silver, Apple India Education Store (70W adapter config)
+      </p>
+      <p id="last-ok" class="last-ok">Last successful check: loading&hellip;</p>
+    </header>
+
+    <main>
+      <div id="messages" aria-live="polite"></div>
+
+      <section aria-labelledby="prices-heading">
+        <h2 id="prices-heading" class="section-title">Prices</h2>
+        <div id="cards" class="cards"></div>
+      </section>
+
+      <section aria-labelledby="history-heading">
+        <div class="section-head">
+          <h2 id="history-heading" class="section-title">Price history</h2>
+          <div id="range" class="range" role="group" aria-label="Chart range"></div>
+        </div>
+        <div id="charts" class="charts"></div>
+      </section>
+
+      <section aria-labelledby="recent-heading">
+        <h2 id="recent-heading" class="section-title">Recent checks</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Time (IST)</th>
+                <th scope="col">Item</th>
+                <th scope="col">Status</th>
+                <th scope="col" class="num">Price</th>
+                <th scope="col">Error</th>
+              </tr>
+            </thead>
+            <tbody id="recent-body"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <a href="data/prices.csv" download>Download CSV</a>
+      <span aria-hidden="true">&middot;</span>
+      <a href="https://github.com/bahniman14/MacTrack" rel="noopener noreferrer">GitHub repo</a>
+      <span aria-hidden="true">&middot;</span>
+      <span>Prices checked once a day; read-only page.</span>
+    </footer>
+
+    <script
+      src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js"
+      integrity="sha384-b0GXujLkk9eYYSmcSfoyZbfyElGAQnDyY0skCHSG6w3JgTMFnz11ggrTAr7seu9f"
+      crossorigin="anonymous"
+    ></script>
+    <script src="csv.js"></script>
+    <script src="stats.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

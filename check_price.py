@@ -4,7 +4,8 @@ Usage:  python check_price.py [--config config.json] [--csv docs/data/prices.csv
                               [--no-alerts | --alerts-dry-run]
 
 Exit codes: 0 = run completed (even if individual items failed),
-            3 = rows were appended but alert/summary processing crashed.
+            3 = rows were appended but alert/summary processing crashed,
+            4 = rows were appended but a Telegram message could not be delivered.
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ import httpx
 
 import alerts
 import parser as price_parser
+import sanity
 import storage
 
 ROOT = Path(__file__).resolve().parent
@@ -45,7 +47,9 @@ BLOCKED_HTTP_STATUSES = {403, 429}
 
 REQUIRED_ITEM_KEYS = ("id", "line_item", "seller", "price_type", "url", "part_number", "enabled")
 LINE_ITEMS = ("device", "applecare")
-EXIT_NOTIFY_ERROR = 3
+PRICE_BOUND_KEYS = ("min_price_inr", "max_price_inr")
+EXIT_NOTIFY_ERROR = 3  # alert/summary code crashed (rows already saved)
+EXIT_SEND_FAILED = 4  # credentials present but a Telegram message could not be delivered
 
 
 @dataclass(frozen=True)
@@ -83,7 +87,18 @@ def load_config(path: Path) -> list[dict[str, Any]]:
         if item["id"] in ids:
             raise ValueError(f"{path}: duplicate item id {item['id']!r}")
         ids.add(item["id"])
+        _validate_price_bounds(path, item)
     return items
+
+
+def _validate_price_bounds(path: Path, item: dict[str, Any]) -> None:
+    for key in PRICE_BOUND_KEYS:
+        value = item.get(key)
+        if value is not None and (not isinstance(value, int) or isinstance(value, bool) or value < 1):
+            raise ValueError(f"{path}: item {item['id']} {key} must be a positive integer, got {value!r}")
+    low, high = (item.get(k) for k in PRICE_BOUND_KEYS)
+    if low is not None and high is not None and low >= high:
+        raise ValueError(f"{path}: item {item['id']} min_price_inr must be below max_price_inr")
 
 
 def fetch(client: httpx.Client, url: str) -> FetchResult:
@@ -98,13 +113,15 @@ def fetch(client: httpx.Client, url: str) -> FetchResult:
     return FetchResult(response.text)
 
 
-def check_item(item: dict[str, Any], fetched: FetchResult) -> dict[str, Any]:
+def check_item(
+    item: dict[str, Any], fetched: FetchResult, previous_ok: int | None = None
+) -> dict[str, Any]:
     """Build one CSV row for an item. Never raises for item-level problems."""
     if fetched.html is None:
         result = price_parser.ParseResult(status=fetched.status, error=fetched.error)
     else:
         try:
-            result = price_parser.parse(fetched.html, item)
+            result = sanity.apply(price_parser.parse(fetched.html, item), item, previous_ok)
         except Exception as exc:  # noqa: BLE001 - one bad item must not stop the run
             result = price_parser.ParseResult(
                 status=price_parser.STATUS_FAILED, error=f"{type(exc).__name__}: {exc}"
@@ -130,8 +147,10 @@ def run(
     items: list[dict[str, Any]],
     client: httpx.Client,
     sleep: Callable[[float], None] = time.sleep,
+    previous_ok_prices: dict[str, int] | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch each unique URL once (with a polite delay between URLs) and parse every item on it."""
+    previous = previous_ok_prices or {}
     enabled = [i for i in items if i.get("enabled")]
     urls = list(dict.fromkeys(i["url"] for i in enabled))
     rows: list[dict[str, Any]] = []
@@ -139,7 +158,9 @@ def run(
         if index > 0:
             sleep(random.uniform(MIN_DELAY_S, MAX_DELAY_S))
         fetched = fetch(client, url)
-        rows.extend(check_item(item, fetched) for item in enabled if item["url"] == url)
+        rows.extend(
+            check_item(item, fetched, previous.get(item["id"])) for item in enabled if item["url"] == url
+        )
     return rows
 
 
@@ -166,10 +187,11 @@ def main(argv: list[str] | None = None) -> int:
         print("No enabled items in config.")
         return 0
 
+    previous = sanity.previous_ok_prices(storage.read_rows(args.csv))
     with httpx.Client(
         headers=REQUEST_HEADERS, timeout=REQUEST_TIMEOUT_S, follow_redirects=True
     ) as client:
-        rows = run(items, client)
+        rows = run(items, client, previous_ok_prices=previous)
 
     written = storage.append_rows(rows, args.csv)
     for row in rows:
@@ -190,7 +212,7 @@ def notify(
 ) -> int:
     """Alerts + weekly summary. Runs after the CSV append, so data is never lost if this fails."""
     try:
-        alerts.run_notifications(
+        outcome = alerts.run_notifications(
             args.csv,
             items,
             settings,
@@ -203,6 +225,12 @@ def notify(
         message = alerts.redact(f"{type(exc).__name__}: {exc}", os.environ.get(alerts.TOKEN_ENV))
         print(f"ERROR: alert/summary processing failed: {alerts.console_safe(message)}")
         return EXIT_NOTIFY_ERROR
+    if outcome.failed:
+        print(
+            f"ERROR: {outcome.failed} of {len(outcome.messages)} Telegram message(s) could not be "
+            f"delivered (CSV rows were saved). Exiting with code {EXIT_SEND_FAILED}."
+        )
+        return EXIT_SEND_FAILED
     return 0
 
 

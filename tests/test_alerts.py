@@ -156,6 +156,53 @@ def test_no_recovery_after_short_failure():
     assert _alerts([255000, "failed", 255000]) == []
 
 
+def test_no_match_failure_has_distinct_wording():
+    text = _alerts([255000, "failed", "no_match"])[0].text
+
+    assert "page or configuration changed (no_match)" in text
+
+
+def test_failed_status_wording():
+    text = _alerts([255000, "no_match", "failed"])[0].text
+
+    assert "Reason: check failed (failed)" in text
+
+
+def test_reminder_fires_only_at_streak_7():
+    def kinds(n_failures: int) -> list[str]:
+        return [a.kind for a in _alerts([255000] + ["failed"] * n_failures)]
+
+    assert kinds(2) == ["failure"]
+    assert [kinds(n) for n in (3, 4, 5, 6)] == [[], [], [], []]
+    assert kinds(7) == ["failure_reminder"]
+    assert kinds(8) == [] and kinds(14) == []
+    assert "still failing (reminder)" in _alerts([255000] + ["blocked"] * 7)[0].text
+    assert "7 consecutive runs not ok" in _alerts([255000] + ["blocked"] * 7)[0].text
+
+
+def test_recovery_after_reminder_fires_once():
+    first = _alerts([255000] + ["failed"] * 9 + [255000])
+    second = _alerts([255000] + ["failed"] * 9 + [255000, 255000])
+
+    assert [a.kind for a in first] == ["recovery"]
+    assert second == []
+
+
+def test_suspect_counts_as_failure_and_is_never_a_price():
+    rows = _history(DEV, [260000]) + [
+        _row(DEV, 1, "suspect", price=1, error="price 1 is below min_price_inr 150000"),
+        _row(DEV, 2, "suspect", price=1, error="price 1 is below min_price_inr 150000"),
+    ]
+
+    result = alerts.evaluate_alerts(rows, [DEV], ITEMS_BY_ID, SETTINGS)
+
+    assert [a.kind for a in result] == ["failure"]
+    assert "implausible price" in result[0].text
+    assert "₹1" not in result[0].text.replace("₹1,", "")  # suspect price never shown as a price
+    after = rows + [_row(DEV, 3, price=260000)]  # same as last ok price: recovery only, no low
+    assert [a.kind for a in alerts.evaluate_alerts(after, [DEV], ITEMS_BY_ID, SETTINGS)] == ["recovery"]
+
+
 def test_recovery_and_price_drop_are_separate_messages():
     assert [a.kind for a in _alerts([260000, "failed", "failed", 250000])] == ["recovery", "price"]
 
@@ -181,19 +228,30 @@ def test_items_are_evaluated_independently():
 
 def test_alert_settings_from_config():
     assert alerts.parse_alert_settings({"alerts": {"drop_inr": 3000, "failure_streak": 3}}) == (
-        alerts.AlertSettings(3000, 3)
+        alerts.AlertSettings(3000, 3, 7)
     )
-    assert alerts.parse_alert_settings({}) == alerts.AlertSettings(5000, 2)
+    assert alerts.parse_alert_settings({}) == alerts.AlertSettings(5000, 2, 7)
 
 
-@pytest.mark.parametrize("bad", [{"drop_inr": 0}, {"failure_streak": "2"}, {"drop_inr": True}])
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"drop_inr": 0},
+        {"failure_streak": "2"},
+        {"drop_inr": True},
+        {"failure_reminder_streak": 2},  # must be greater than failure_streak
+        {"failure_reminder_streak": 0},
+    ],
+)
 def test_alert_settings_validation(bad):
     with pytest.raises(ValueError):
         alerts.parse_alert_settings({"alerts": bad})
 
 
 def test_repo_config_alert_settings():
-    assert check_price.load_alert_settings(check_price.DEFAULT_CONFIG_PATH) == alerts.AlertSettings(5000, 2)
+    settings = check_price.load_alert_settings(check_price.DEFAULT_CONFIG_PATH)
+
+    assert settings == alerts.AlertSettings(5000, 2, 7)
 
 
 # ------------------------------------------------------------ weekly summary
@@ -404,10 +462,44 @@ def test_main_telegram_failure_keeps_data_and_hides_token(monkeypatch, tmp_path,
     code = check_price.main(["--csv", str(csv_path)])
 
     out = capsys.readouterr()
-    assert code == 0
-    assert len(storage.read_rows(csv_path)) == 2
+    assert code == check_price.EXIT_SEND_FAILED == 4
+    assert len(storage.read_rows(csv_path)) == 2  # rows written before the non-zero exit
     assert "Telegram send failed" in out.out
+    assert "could not be delivered" in out.out
     assert FAKE_TOKEN not in out.out + out.err
+
+
+def test_main_missing_credentials_is_warning_with_exit_0(monkeypatch, tmp_path, capsys, live_raw_html):
+    _patch_network(monkeypatch, live_raw_html, lambda r: httpx.Response(200, json={"ok": True}))
+    monkeypatch.setenv("FORCE_SUMMARY", "1")  # a message is due, but no credentials are set
+
+    code = check_price.main(["--csv", str(tmp_path / "prices.csv")])
+
+    assert code == 0
+    assert "WARNING" in capsys.readouterr().out
+
+
+def test_main_successful_send_exits_0(monkeypatch, tmp_path, live_raw_html):
+    _patch_network(monkeypatch, live_raw_html, lambda r: httpx.Response(200, json={"ok": True}))
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", FAKE_TOKEN)
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", FAKE_CHAT)
+    monkeypatch.setenv("FORCE_SUMMARY", "1")
+
+    assert check_price.main(["--csv", str(tmp_path / "prices.csv")]) == 0
+
+
+def test_notify_result_counts_partial_failures(tmp_path):
+    path = tmp_path / "prices.csv"
+    storage.append_rows(_history(DEV, [260000, 255000]), path)
+    replies = iter([True, False])  # price alert sent, weekly summary fails
+
+    result = alerts.run_notifications(
+        path, ITEMS, SETTINGS, [DEV], BASE,
+        env={"TELEGRAM_BOT_TOKEN": FAKE_TOKEN, "TELEGRAM_CHAT_ID": FAKE_CHAT, "FORCE_SUMMARY": "1"},
+        sender=lambda *a: next(replies),
+    )
+
+    assert (len(result.messages), result.sent, result.failed) == (2, 1, 1)
 
 
 def test_main_alert_crash_returns_3_and_keeps_rows(monkeypatch, tmp_path, capsys, live_raw_html):

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from parser import (
@@ -154,6 +156,98 @@ def test_applecare_uses_bootstrap_and_price_map_when_form_absent(applecare_item)
     assert result.in_stock is None
 
 
+def _bootstrap(plans: list[dict]) -> str:
+    return "<script>window.APPLECARE_BOOTSTRAP = {\n appleCareData: " + json.dumps(
+        [{"planDetails": plans}]
+    ) + "\n};</script>"
+
+
+FULL = {"dimensionPaymentType": {"value": "fullprice"}}
+
+
+def test_applecare_monthly_plan_listed_first_is_ignored(applecare_item):
+    html = _bootstrap(
+        [
+            {"partNumber": "SXKK2HN/A", "rawPrice": 1317.0},  # monthly variant, no payment type
+            {"partNumber": "SXKK2HN/A", "rawPrice": 1317.0, "dimensionPaymentType": {"value": "financing"}},
+            {"partNumber": "SXKK2HN/A", "rawPrice": 26900.0, **FULL},
+        ]
+    )
+
+    result = parse(html, applecare_item)
+
+    assert result.status == STATUS_OK, result.error
+    assert result.price_inr == 26900
+
+
+def test_applecare_without_explicit_fullprice_is_no_match(applecare_item):
+    result = parse(_bootstrap([{"partNumber": "SXKK2HN/A", "rawPrice": 26900.0}]), applecare_item)
+
+    assert result.status == STATUS_NO_MATCH
+    assert "full-price" in result.error
+
+
+def test_applecare_duplicate_plans_with_different_prices_are_ambiguous(applecare_item):
+    html = _bootstrap(
+        [
+            {"partNumber": "SXKK2HN/A", "rawPrice": 26900.0, **FULL},
+            {"partNumber": "SXKK2HN/A", "rawPrice": 29900.0, **FULL},
+        ]
+    )
+
+    result = parse(html, applecare_item)
+
+    assert result.status == STATUS_FAILED
+    assert result.price_inr is None
+    assert "ambiguous" in result.error
+
+
+def test_applecare_duplicate_plans_with_same_price_are_fine(applecare_item):
+    plan = {"partNumber": "SXKK2HN/A", "rawPrice": 26900.0, **FULL}
+
+    assert parse(_bootstrap([plan, dict(plan)]), applecare_item).price_inr == 26900
+
+
+def _ld(offers: list[dict]) -> str:
+    payload = json.dumps({"@type": "Product", "offers": offers})
+    return f'<script type="application/ld+json">{payload}</script>'
+
+
+def test_device_duplicate_offers_with_different_prices_are_ambiguous(live_device_item):
+    sku = live_device_item["expected_sku"]
+    html = _ld(
+        [
+            {"priceCurrency": "INR", "price": 1, "sku": sku},
+            {"priceCurrency": "INR", "price": 251900, "sku": sku},
+        ]
+    )
+
+    result = parse(html, live_device_item)
+
+    assert result.status == STATUS_FAILED
+    assert result.price_inr is None
+    assert "ambiguous" in result.error
+
+
+def test_device_duplicate_offers_with_same_price_are_fine(live_device_item):
+    offer = {"priceCurrency": "INR", "price": "251900.00", "sku": live_device_item["expected_sku"]}
+
+    assert parse(_ld([offer, dict(offer)]), live_device_item).price_inr == 251900
+
+
+@pytest.mark.parametrize("currency", [None, "USD"])
+def test_device_missing_or_foreign_currency_fails(live_device_item, currency):
+    offer = {"price": 251900, "sku": live_device_item["expected_sku"]}
+    if currency:
+        offer["priceCurrency"] = currency
+
+    result = parse(_ld([offer]), live_device_item)
+
+    assert result.status == STATUS_FAILED
+    assert result.price_inr is None
+    assert "currency" in result.error.lower()
+
+
 def test_applecare_without_bootstrap_fails(applecare_item):
     result = parse("<html><body>hello world</body></html>", applecare_item)
 
@@ -182,6 +276,14 @@ def test_combined_headline_price_is_never_returned(fixture_html, config_items, d
 def test_blocked_pages_are_detected(html, device_item, applecare_item):
     assert parse(html, device_item).status == STATUS_BLOCKED
     assert parse(html, applecare_item).status == STATUS_BLOCKED
+
+
+@pytest.mark.parametrize(
+    "marker", ["700009", "chrome-extension://", "bh-crx", "hk-offersReadyPopCont", "saved from url"]
+)
+def test_public_fixtures_contain_no_personal_or_extension_data(fixture_html, live_raw_html, marker):
+    assert marker not in fixture_html
+    assert marker not in live_raw_html
 
 
 def test_empty_page_fails(device_item):
