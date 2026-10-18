@@ -1,0 +1,39 @@
+{
+  "items": [
+    {
+      "id": "m5_mbp14_silver_24_1tb",
+      "name": "MacBook Pro 14\" M5 10C CPU/10C GPU, 24GB, 1TB, Silver, standard display, 70W adapter (URL default config)",
+      "line_item": "device",
+      "seller": "apple_in_edu",
+      "price_type": "education",
+      "url": "https://www.apple.com/in-edu/shop/buy-mac/macbook-pro/14-inch-silver-standard-display-apple-m5-chip-10-core-cpu-10-core-gpu-24gb-memory-1tb-storage",
+      "part_number": "Z1KM",
+      "expected_sku": "Z1KM+CK56+CK58+CK5F+CK5H+CK5M+CK5P+CK66+CK77+CK7K+HNCK5Q",
+      "mrp_title": "14\" MacBook Pro - Silver",
+      "enabled": true
+    },
+    {
+      "id": "m5_mbp14_silver_24_1tb_applecare",
+      "name": "AppleCare+ for MacBook Pro 14\" M5 (Silver, 24GB, 1TB)",
+      "line_item": "applecare",
+      "seller": "apple_in_edu",
+      "price_type": "education",
+      "url": "https://www.apple.com/in-edu/shop/buy-mac/macbook-pro/14-inch-silver-standard-display-apple-m5-chip-10-core-cpu-10-core-gpu-24gb-memory-1tb-storage",
+      "part_number": "SXKK2HN/A",
+      "mrp_title": "AppleCare+",
+      "enabled": true
+    },
+    {
+      "id": "m5_mbp14_spaceblack_24_1tb",
+      "name": "MacBook Pro 14\" M5 10C CPU/10C GPU, 24GB, 1TB, Space Black, standard display",
+      "line_item": "device",
+      "seller": "apple_in_edu",
+      "price_type": "education",
+      "url": "https://www.apple.com/in-edu/shop/buy-mac/macbook-pro/14-inch-space-black-standard-display-apple-m5-chip-10-core-cpu-10-core-gpu-24gb-memory-1tb-storage",
+      "part_number": "TODO_PART_NUMBER",
+      "expected_sku": "TODO_EXPECTED_SKU",
+      "mrp_title": "14\" MacBook Pro - Space Black",
+      "enabled": false
+    }
+  ]
+}

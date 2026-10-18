@@ -1,0 +1,33 @@
+.rf-bfe-summary .rf-bfe-product-requirementtext {
+    color: #6E6E73;
+    line-height: 1.2857742857;
+}
+
+.rf-bfe-summary .rf-bfe-product-requirementtext:lang(ko) {
+    line-height: 1.3529611765;
+}
+
+.macbook-air .rc-witb-item:last-child .rc-witb-image-wrapper:lang(cs),
+.macbook-air .rc-witb-item:last-child .rc-witb-image-wrapper:lang(pt),
+.macbook-air .rc-witb-item:last-child .rc-witb-image-wrapper:lang(es),
+.macbook-air .rc-witb-item:last-child .rc-witb-image-wrapper:lang(fr),
+.macbook-air .rc-witb-item:last-child .rc-witb-image-wrapper:lang(fi),
+.macbook-air .rc-witb-item:last-child .rc-witb-image-wrapper:lang(hu),
+.macbook-air .rc-witb-item:last-child .rc-witb-image-wrapper:lang(it),
+.macbook-air .rc-witb-item:last-child .rc-witb-image-wrapper:lang(nl),
+.macbook-air .rc-witb-item:last-child .rc-witb-image-wrapper:lang(no),
+.macbook-air .rc-witb-item:last-child .rc-witb-image-wrapper:lang(pl),
+.macbook-air .rc-witb-item:last-child .rc-witb-image-wrapper:lang(de),
+.macbook-air .rc-witb-item:last-child .rc-witb-image-wrapper:lang(da),
+.macbook-air .rc-witb-item:last-child .rc-witb-image-wrapper:lang(vi),
+.macbook-air .rc-witb-item:last-child .rc-witb-image-wrapper:lang(th),
+.macbook-air .rc-witb-item:last-child .rc-witb-image-wrapper:lang(en-TH),
+.macbook-air .rc-witb-item:last-child .rc-witb-image-wrapper:lang(sv),
+.macbook-air .rc-witb-item:last-child .rc-witb-image-wrapper:lang(tr),
+.macbook-air .rc-witb-item:last-child .rc-witb-image-wrapper:lang(ko) {
+    padding-right: 30px;
+}
+
+.macbook-air .rc-witb-item:last-child .rc-witb-image-wrapper:lang(ar) {
+    padding-inline-end: 30px;
+}
