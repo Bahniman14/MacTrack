@@ -1,4 +1,8 @@
 {
+  "alerts": {
+    "drop_inr": 5000,
+    "failure_streak": 2
+  },
   "items": [
     {
       "id": "m5_mbp14_silver_24_1tb",

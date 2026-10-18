@@ -14,6 +14,13 @@ SKU_70W = "Z1KM+CK56+CK58+CK5F+CK5H+CK5M+CK5P+CK66+CK77+CK7K+HNCK5Q"
 SKU_96W = "Z1KM+CK56+CK58+CK5F+CK5J+CK5M+CK5P+CK66+CK77+CK7K+HNCK5Q"
 
 
+@pytest.fixture(autouse=True)
+def _isolate_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests never see real Telegram credentials or a forced summary from the developer's shell."""
+    for name in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "FORCE_SUMMARY"):
+        monkeypatch.delenv(name, raising=False)
+
+
 @pytest.fixture(scope="session")
 def fixture_html() -> str:
     return FIXTURE_HTML.read_text(encoding="utf-8")

@@ -27,6 +27,29 @@ Each run makes one request per unique URL and waits 3–8 s between different UR
 A 403 or 429 response, or a CAPTCHA/robot page, is recorded as `blocked` and not retried.
 The script exits 0 even when individual items fail.
 
+## Telegram alerts and weekly summary
+
+Alerts are computed from `docs/data/prices.csv` after each run, separately for each item:
+- a price drop of at least `alerts.drop_inr`
+- a new all-time low
+- a failure streak reaching exactly `alerts.failure_streak`
+- recovery after such a streak
+
+A weekly summary is sent on Sundays (IST), or whenever `FORCE_SUMMARY=1`.
+Credentials come only from environment variables (see `.env.example`).
+If they are missing, alerts are skipped with a warning.
+
+```powershell
+python check_price.py --alerts-dry-run     # print messages, send nothing
+python check_price.py --no-alerts          # skip alerts and summary
+$env:TELEGRAM_BOT_TOKEN = "<token>"; $env:TELEGRAM_CHAT_ID = "<chat id>"; $env:FORCE_SUMMARY = "1"
+python check_price.py                      # sends the summary now
+Remove-Item Env:FORCE_SUMMARY
+```
+
+GitHub Actions (`.github/workflows/check-price.yml`) runs daily at 12:00 IST. It runs the tests, then the
+check, and commits `prices.csv` only if it changed. Add the repo secrets `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`.
+
 ## Test / lint (offline)
 
 ```powershell

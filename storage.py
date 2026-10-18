@@ -60,6 +60,16 @@ def append_rows(rows: Iterable[Mapping[str, Any]], csv_path: Path = DEFAULT_CSV_
     return len(formatted)
 
 
+def read_rows(csv_path: Path = DEFAULT_CSV_PATH) -> list[dict[str, str]]:
+    """All rows in file order (oldest first). Read-only; missing file -> []."""
+    csv_path = Path(csv_path)
+    if not csv_path.exists() or csv_path.stat().st_size == 0:
+        return []
+    _check_header(csv_path)
+    with csv_path.open("r", encoding="utf-8", newline="") as f:
+        return list(csv.DictReader(f))
+
+
 def _check_header(csv_path: Path) -> None:
     with csv_path.open("r", encoding="utf-8", newline="") as f:
         header = next(csv.reader(f), [])

@@ -1,12 +1,17 @@
 """Fetch each enabled item's page once, parse it, and append one CSV row per item.
 
 Usage:  python check_price.py [--config config.json] [--csv docs/data/prices.csv]
+                              [--no-alerts | --alerts-dry-run]
+
+Exit codes: 0 = run completed (even if individual items failed),
+            3 = rows were appended but alert/summary processing crashed.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import sys
 import time
@@ -17,6 +22,7 @@ from typing import Any
 
 import httpx
 
+import alerts
 import parser as price_parser
 import storage
 
@@ -39,6 +45,7 @@ BLOCKED_HTTP_STATUSES = {403, 429}
 
 REQUIRED_ITEM_KEYS = ("id", "line_item", "seller", "price_type", "url", "part_number", "enabled")
 LINE_ITEMS = ("device", "applecare")
+EXIT_NOTIFY_ERROR = 3
 
 
 @dataclass(frozen=True)
@@ -48,10 +55,21 @@ class FetchResult:
     error: str | None = None
 
 
-def load_config(path: Path) -> list[dict[str, Any]]:
+def _read_config(path: Path) -> dict[str, Any]:
     with Path(path).open("r", encoding="utf-8") as f:
         data = json.load(f)
-    items = data.get("items") if isinstance(data, dict) else None
+    if not isinstance(data, dict):
+        raise ValueError(f"{path}: expected a JSON object")
+    return data
+
+
+def load_alert_settings(path: Path) -> alerts.AlertSettings:
+    return alerts.parse_alert_settings(_read_config(path))
+
+
+def load_config(path: Path) -> list[dict[str, Any]]:
+    data = _read_config(path)
+    items = data.get("items")
     if not isinstance(items, list):
         raise ValueError(f"{path}: expected an object with an 'items' list")
 
@@ -143,6 +161,7 @@ def format_summary(row: dict[str, Any]) -> str:
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     items = load_config(args.config)
+    settings = load_alert_settings(args.config)
     if not any(i.get("enabled") for i in items):
         print("No enabled items in config.")
         return 0
@@ -156,6 +175,34 @@ def main(argv: list[str] | None = None) -> int:
     for row in rows:
         print(format_summary(row))
     print(f"Appended {written} row(s) to {args.csv}")
+
+    if args.no_alerts:
+        print("Alerts disabled (--no-alerts).")
+        return 0
+    return notify(args, items, settings, [r["item_id"] for r in rows])
+
+
+def notify(
+    args: argparse.Namespace,
+    items: list[dict[str, Any]],
+    settings: alerts.AlertSettings,
+    item_ids: list[str],
+) -> int:
+    """Alerts + weekly summary. Runs after the CSV append, so data is never lost if this fails."""
+    try:
+        alerts.run_notifications(
+            args.csv,
+            items,
+            settings,
+            item_ids,
+            now=storage.now_ist(),
+            env=os.environ,
+            dry_run=args.alerts_dry_run,
+        )
+    except Exception as exc:  # noqa: BLE001 - report, keep appended data, signal via exit code
+        message = alerts.redact(f"{type(exc).__name__}: {exc}", os.environ.get(alerts.TOKEN_ENV))
+        print(f"ERROR: alert/summary processing failed: {alerts.console_safe(message)}")
+        return EXIT_NOTIFY_ERROR
     return 0
 
 
@@ -163,6 +210,11 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     ap = argparse.ArgumentParser(description="Check configured prices and append to CSV.")
     ap.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
     ap.add_argument("--csv", type=Path, default=storage.DEFAULT_CSV_PATH)
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument("--no-alerts", action="store_true", help="skip alerts and weekly summary")
+    mode.add_argument(
+        "--alerts-dry-run", action="store_true", help="print alert/summary messages instead of sending"
+    )
     return ap.parse_args(argv)
 
 
